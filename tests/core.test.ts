@@ -165,6 +165,146 @@ describe("Procurement core · database-backed verification", () => {
       }),
     ).rejects.toThrow("Department not found");
   });
+  it("imports catalog, suppliers and supplier enrichment atomically with audit history", async () => {
+    const { s, db } = await libs();
+    const admin = a("admin");
+    const productResult = await s.importProducts(admin, [
+      {
+        sku: "CSV-IMPORT-01",
+        name: "Imported test product",
+        category: "Testing",
+        kind: "GOODS",
+        baseUnit: "piece",
+        purchaseUnit: "box",
+        packFactor: "12",
+        reorderPoint: "2",
+        targetStock: "24",
+      },
+    ]);
+    const vendorResult = await s.importVendors(a("buyer"), [
+      {
+        name: "Imported test supplier",
+        email: "CSV-Vendor@atlas.example",
+        countries: "eg;ae",
+        currencies: "egp;aed",
+        categories: "Office;Paper",
+        deliveryAreas: "Cairo;Alexandria",
+      },
+    ]);
+    expect(productResult.imported).toBe(1);
+    expect(vendorResult.imported).toBe(1);
+    const mapping = {
+      vendorEmail: "csv-vendor@atlas.example",
+      productSku: "csv-import-01",
+      vendorSku: "CSV-V-01",
+      unit: "box",
+      packFactor: "12",
+      price: "120",
+      currency: "egp",
+      moq: "2",
+      leadDays: 7,
+      country: "eg",
+    };
+    expect((await s.importSupplierItems(a("buyer"), [mapping])).imported).toBe(
+      1,
+    );
+    expect(
+      (await s.importSupplierItems(a("buyer"), [{ ...mapping, price: "132" }]))
+        .imported,
+    ).toBe(1);
+    const importedVendor = await db.vendor.findUniqueOrThrow({
+      where: {
+        tenantId_email: {
+          tenantId: admin.tenantId,
+          email: "csv-vendor@atlas.example",
+        },
+      },
+    });
+    const importedProduct = await db.product.findUniqueOrThrow({
+      where: {
+        tenantId_sku: {
+          tenantId: admin.tenantId,
+          sku: "CSV-IMPORT-01",
+        },
+      },
+    });
+    expect(importedVendor.status).toBe("PENDING");
+    expect(importedVendor.countries).toEqual(["EG", "AE"]);
+    expect(importedProduct.stockTracked).toBe(true);
+    const enriched = await db.supplierItem.findUniqueOrThrow({
+      where: {
+        vendorId_productId_country: {
+          vendorId: importedVendor.id,
+          productId: importedProduct.id,
+          country: "EG",
+        },
+      },
+    });
+    expect(enriched.price.toString()).toBe("132");
+    expect(enriched.priceHistory).toHaveLength(1);
+    await expect(
+      s.importProducts(a("buyer"), [
+        {
+          sku: "NOT-AUTHORIZED",
+          name: "Not authorized",
+          category: "Testing",
+          baseUnit: "piece",
+          purchaseUnit: "piece",
+          packFactor: 1,
+          reorderPoint: 0,
+          targetStock: 1,
+        },
+      ]),
+    ).rejects.toThrow("permission");
+    await expect(
+      s.importVendors(a("buyer"), [
+        {
+          name: "Duplicate one",
+          email: "duplicate@atlas.example",
+          countries: "EG",
+          currencies: "EGP",
+        },
+        {
+          name: "Duplicate two",
+          email: "DUPLICATE@atlas.example",
+          countries: "EG",
+          currencies: "EGP",
+        },
+      ]),
+    ).rejects.toThrow("duplicate supplier email");
+    expect(
+      await db.vendor.count({
+        where: {
+          tenantId: admin.tenantId,
+          email: "duplicate@atlas.example",
+        },
+      }),
+    ).toBe(0);
+    await expect(
+      s.importVendors(a("buyer"), [
+        {
+          name: "Would be rolled back",
+          email: "atomic-import@atlas.example",
+          countries: "EG",
+          currencies: "EGP",
+        },
+        {
+          name: "Existing supplier",
+          email: "csv-vendor@atlas.example",
+          countries: "EG",
+          currencies: "EGP",
+        },
+      ]),
+    ).rejects.toBeDefined();
+    expect(
+      await db.vendor.count({
+        where: {
+          tenantId: admin.tenantId,
+          email: "atomic-import@atlas.example",
+        },
+      }),
+    ).toBe(0);
+  });
   it("isolates vendor quotations and orders; vendors cannot access internal comparison", async () => {
     const { q, s } = await libs();
     const w = await q.workspace(a("vendor-1", []));

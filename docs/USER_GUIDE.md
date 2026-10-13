@@ -28,6 +28,14 @@ When an RFQ is amended, the supplier must acknowledge the new version before sub
 
 Group and entity administrators can use **Master data** to add products and services, entity departments and cost centers, delivery warehouses, and entity budgets. Products are tenant-wide; the other records are restricted to the selected legal entity. Budget currency must match the entity currency, and a budget must belong to a department in that entity. New records are audit logged.
 
+Buyers can import suppliers from the supplier directory and import supplier-item enrichment from the product catalog. Group administrators can also import products from the catalog. Download the matching CSV template first. Imports accept up to 250 rows (512 KB) and are all-or-nothing: invalid rows or duplicate supplier/product records reject the file. Supplier imports remain **pending qualification** and never grant portal access. Supplier enrichment matches existing suppliers by email and products by SKU; matching country/product records are updated while prior price data is retained in history. Use semicolons inside countries, currencies, categories, and delivery-area cells. Review imported suppliers and qualify them separately before inviting them to the portal.
+
+CSV columns:
+
+- Products: `sku`, `name`, `category`, `kind`, `baseUnit`, `purchaseUnit`, `packFactor`, `specifications`, `reorderPoint`, `targetStock`
+- Suppliers: `name`, `email`, `countries`, `currencies`, `categories`, `deliveryAreas`, `taxId`
+- Supplier enrichment: `vendorEmail`, `productSku`, `vendorSku`, `unit`, `packFactor`, `price`, `currency`, `moq`, `leadDays`, `country`
+
 - `scripts/bootstrap.ts`: initializes an empty production database and one group administrator.
 - `scripts/provision.ts`: bulk-adds departments, warehouses, entity users and products from a validated local JSON file. Set `PROVISION_FILE` to its absolute path and `PROVISION_PASSWORD` only when creating users. Supply `tenantId`, `entityId`, and a valid group administrator `operatorId`. All changes are audited.
 - `scripts/password.ts`: rotates a user's password and revokes their sessions. Set `RESET_EMAIL` and `RESET_PASSWORD` in a secure local environment.

@@ -1842,6 +1842,249 @@ export async function createProduct(a: Actor, input: unknown) {
     return product;
   });
 }
+const importRows = <T extends z.ZodType>(schema: T) =>
+  z.array(schema).min(1).max(250, "Import at most 250 rows at a time");
+const csvList = (value: string) =>
+  value
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+export async function importProducts(a: Actor, input: unknown) {
+  internal(a);
+  authorize(a, ["GROUP_ADMIN"]);
+  const rows = importRows(
+    z.object({
+      sku: z
+        .string()
+        .trim()
+        .min(1)
+        .max(80)
+        .transform((x) => x.toUpperCase()),
+      name: text.max(200),
+      category: text.max(120),
+      kind: z.enum(["GOODS", "SERVICE"]).default("GOODS"),
+      baseUnit: text.max(40),
+      purchaseUnit: text.max(40),
+      packFactor: positive,
+      specifications: z.string().trim().max(2000).default(""),
+      reorderPoint: decimal,
+      targetStock: positive,
+    }),
+  ).parse(input);
+  const skus = rows.map((row) => row.sku);
+  ensure(
+    new Set(skus).size === skus.length,
+    "CSV contains duplicate product SKUs",
+  );
+  return transaction(async (tx) => {
+    const created = [];
+    for (const p of rows) {
+      const product = await tx.product.create({
+        data: {
+          ...p,
+          tenantId: a.tenantId,
+          stockTracked: p.kind === "GOODS",
+        },
+      });
+      await audit(
+        tx,
+        a,
+        null,
+        "IMPORT",
+        "Product",
+        product.id,
+        "Product imported from CSV",
+        undefined,
+        product,
+      );
+      created.push(product);
+    }
+    return { imported: created.length };
+  });
+}
+export async function importVendors(a: Actor, input: unknown) {
+  internal(a);
+  authorize(a, buyers);
+  const rows = importRows(
+    z.object({
+      name: text.max(400),
+      email: z.email(),
+      countries: z
+        .string()
+        .transform((value) => csvList(value).map((item) => item.toUpperCase()))
+        .pipe(z.array(z.string().length(2)).min(1)),
+      currencies: z
+        .string()
+        .transform((value) => csvList(value).map((item) => item.toUpperCase()))
+        .pipe(z.array(z.string().length(3)).min(1)),
+      categories: z.string().default("").transform(csvList),
+      deliveryAreas: z.string().default("").transform(csvList),
+      taxId: z.string().trim().max(100).default(""),
+    }),
+  ).parse(input);
+  const emails = rows.map((row) => row.email.toLowerCase());
+  ensure(
+    new Set(emails).size === emails.length,
+    "CSV contains duplicate supplier email addresses",
+  );
+  return transaction(async (tx) => {
+    const created = [];
+    for (const row of rows) {
+      const vendor = await tx.vendor.create({
+        data: {
+          ...row,
+          email: row.email.toLowerCase(),
+          taxId: row.taxId || null,
+          tenantId: a.tenantId,
+        },
+      });
+      await audit(
+        tx,
+        a,
+        null,
+        "IMPORT",
+        "Vendor",
+        vendor.id,
+        "Supplier imported from CSV; qualification remains pending",
+        undefined,
+        vendor,
+      );
+      created.push(vendor);
+    }
+    return { imported: created.length };
+  });
+}
+export async function importSupplierItems(a: Actor, input: unknown) {
+  internal(a);
+  authorize(a, buyers);
+  const rows = importRows(
+    z.object({
+      vendorEmail: z.email(),
+      productSku: z.string().trim().min(1).max(80),
+      vendorSku: text,
+      unit: text.max(40),
+      packFactor: positive,
+      price: decimal,
+      currency: z
+        .string()
+        .trim()
+        .length(3)
+        .transform((x) => x.toUpperCase()),
+      moq: positive,
+      leadDays: z.number().int().min(0).max(3650),
+      country: z
+        .string()
+        .trim()
+        .length(2)
+        .transform((x) => x.toUpperCase()),
+    }),
+  ).parse(input);
+  const keys = rows.map(
+    (row) =>
+      `${row.vendorEmail.toLowerCase()}\u0000${row.productSku.toUpperCase()}\u0000${row.country}`,
+  );
+  ensure(
+    new Set(keys).size === keys.length,
+    "CSV contains duplicate supplier, product and country combinations",
+  );
+  return transaction(async (tx) => {
+    const vendors = await tx.vendor.findMany({
+      where: {
+        tenantId: a.tenantId,
+        email: {
+          in: [...new Set(rows.map((row) => row.vendorEmail.toLowerCase()))],
+        },
+      },
+    });
+    const products = await tx.product.findMany({
+      where: {
+        tenantId: a.tenantId,
+        sku: {
+          in: [...new Set(rows.map((row) => row.productSku.toUpperCase()))],
+        },
+      },
+    });
+    const vendorByEmail = new Map(
+      vendors.map((vendor) => [vendor.email, vendor]),
+    );
+    const productBySku = new Map(
+      products.map((product) => [product.sku, product]),
+    );
+    const missing = rows.flatMap((row, index) => {
+      const absent = [];
+      if (!vendorByEmail.has(row.vendorEmail.toLowerCase()))
+        absent.push(`row ${index + 2}: supplier ${row.vendorEmail} not found`);
+      if (!productBySku.has(row.productSku.toUpperCase()))
+        absent.push(`row ${index + 2}: product ${row.productSku} not found`);
+      return absent;
+    });
+    ensure(!missing.length, missing.join("; "), 404);
+    let imported = 0;
+    for (const row of rows) {
+      const vendor = vendorByEmail.get(row.vendorEmail.toLowerCase())!;
+      const product = productBySku.get(row.productSku.toUpperCase())!;
+      const mappingData = {
+        vendorSku: row.vendorSku,
+        unit: row.unit,
+        packFactor: row.packFactor,
+        price: row.price,
+        currency: row.currency,
+        moq: row.moq,
+        leadDays: row.leadDays,
+        country: row.country,
+      };
+      const key = {
+        vendorId_productId_country: {
+          vendorId: vendor.id,
+          productId: product.id,
+          country: row.country,
+        },
+      };
+      const old = await tx.supplierItem.findUnique({ where: key });
+      const priceHistory = old
+        ? [
+            ...(old.priceHistory as Prisma.JsonArray),
+            {
+              price: old.price.toString(),
+              currency: old.currency,
+              at: old.verifiedAt?.toISOString() ?? null,
+            },
+          ]
+        : [];
+      const mapping = await tx.supplierItem.upsert({
+        where: key,
+        create: {
+          ...mappingData,
+          vendorId: vendor.id,
+          productId: product.id,
+          tenantId: a.tenantId,
+          verifiedAt: new Date(),
+        },
+        update: {
+          ...mappingData,
+          tenantId: a.tenantId,
+          priceHistory,
+          verifiedAt: new Date(),
+        },
+      });
+      await audit(
+        tx,
+        a,
+        null,
+        "IMPORT",
+        "SupplierItem",
+        mapping.id,
+        old
+          ? "Supplier pricing and mapping enriched from CSV"
+          : "Supplier mapping imported from CSV",
+        old,
+        mapping,
+      );
+      imported++;
+    }
+    return { imported };
+  });
+}
 export async function qualifyVendor(
   a: Actor,
   vendorId: string,
