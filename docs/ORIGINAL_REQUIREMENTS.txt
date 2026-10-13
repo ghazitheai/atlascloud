@@ -1,0 +1,441 @@
+Act as a principal enterprise software architect, procurement operations specialist, and senior full-stack engineer.
+
+Build a production-oriented procurement and inventory management platform for multinational corporations. Deliver a working application with a database, backend, frontend, vendor portal, tests, deployment configuration, and documentation—not just mockups or a product specification.
+
+The platform must answer:
+- What do we need to purchase?
+- Which vendors supply each product or service, in each country?
+- Who was invited to quote, and who responded?
+- Which offer provides the best overall value?
+- Who needs to approve the purchase?
+- What was ordered, received, invoiced, and paid?
+- What inventory is available, reserved, or running low?
+- Which suppliers consistently perform well?
+
+Use the following requirements as the product specification.
+
+## 1. Architecture and implementation
+
+Default stack:
+- Next.js and TypeScript for the application.
+- PostgreSQL with Prisma for persistent data.
+- A durable background job queue for invitations, notifications, imports, and scheduled tasks.
+- S3-compatible storage for documents and attachments.
+- Docker Compose for local development.
+
+You may adjust the stack if the existing repository requires it. Explain significant changes.
+
+Create a modular monolith with clear boundaries between procurement, vendors, inventory, finance, approvals, and reporting. Avoid unnecessary microservices.
+
+Use real database-backed workflows. Do not simulate successful actions. If an external integration is unconfigured, clearly display that status and provide a development adapter.
+
+Before implementation, inspect the repository and its instructions. Then write a concise implementation plan and proceed autonomously with reasonable assumptions. Ask only about decisions that materially block implementation.
+
+## 2. Corporate structure and access
+
+Support:
+- Multiple independent corporate tenants.
+- Multiple legal entities within each tenant.
+- Countries, offices, departments, cost centers, warehouses, and delivery locations.
+- Entity-specific base currencies, purchasing policies, tax settings, and approval thresholds.
+- Consolidated group reporting without mixing legal entity accounting records.
+- English and Arabic, including right-to-left layouts.
+- Local time zones and date formats.
+
+Roles:
+- Group administrator.
+- Entity administrator.
+- Procurement manager and buyer.
+- Department requester.
+- Budget owner and approver.
+- Warehouse manager and receiving staff.
+- Finance and accounts payable.
+- Auditor with read-only access.
+- Vendor administrator and vendor employee.
+
+Enforce permissions on the backend and at the record level. Vendor users can access only their own invitations, submissions, orders, and documents. Prevent cross-tenant and unauthorized cross-entity access.
+
+## 3. Vendor onboarding and supplier directory
+
+Build a vendor portal and internal vendor management area.
+
+Procurement staff must be able to:
+- Invite vendors through email.
+- Track invitation delivery, acceptance, expiry, and onboarding progress.
+- Review and approve vendor applications.
+- Suspend or block vendors with recorded reasons.
+- Manage multiple contacts and vendor users.
+
+Capture:
+- Legal and trading names.
+- Registration and tax identifiers.
+- Countries served and delivery areas.
+- Addresses, contacts, and branches.
+- Supported currencies and payment terms.
+- Product categories, brands, products, and services supplied.
+- Minimum order quantities, lead times, and delivery charges.
+- Certificates, insurance, and supporting documents with expiry dates.
+- Bank details with restricted access and an approval process for changes.
+- Contracts, agreed price lists, and purchasing history.
+- Qualification status and performance scorecards.
+
+Provide filters such as:
+“Show approved suppliers of printer consumables that deliver to Cairo within three days.”
+
+Maintain an explicit supplier-to-item relationship containing the vendor SKU, manufacturer reference, unit of measure, pack size, price history, lead time, MOQ, region, contract reference, and last verified date.
+
+Keep vendor claims separate from internally verified information. Flag potential duplicates for review rather than merging automatically.
+
+## 4. Product and service master
+
+Maintain:
+- Internal SKU, name, description, category, and manufacturer.
+- Goods versus services.
+- Specifications and attachments.
+- Base units, purchasing units, and explicit pack conversions.
+- Approved substitutes and equivalent items.
+- Preferred and alternate suppliers.
+- Stock tracking settings.
+- Reorder points, safety stock, and target stock.
+- Optional batch, serial number, and expiry tracking.
+- Entity-specific tax codes.
+
+Prevent invalid unit conversions. Preserve conversion factors used in historical transactions even if the master data changes later.
+
+## 5. Purchase requisitions and budgets
+
+Employees must be able to create requisitions with:
+- Items or services, quantities, specifications, and required dates.
+- Delivery location, department, cost center, and budget.
+- Business justification, urgency, and attachments.
+- Suggested suppliers and substitutes.
+
+Support draft, submitted, returned, approved, rejected, cancelled, and fulfilled states.
+
+Check available inventory before recommending a purchase. Suggest internal stock transfers where appropriate.
+
+Track budgets as allocations, commitments, and actual expenditure. Avoid double-counting when requisitions become purchase orders and invoices.
+
+Support configurable rules for over-budget requests, emergency purchases, and single-source procurement.
+
+## 6. RFQs and vendor invitations
+
+Buyers must be able to create an RFQ from approved requisitions or directly with authorization.
+
+RFQs must include:
+- Unique reference and version.
+- Legal entity and purchasing contact.
+- Item specifications, quantities, and units.
+- Delivery requirements and locations.
+- Submission deadline with time zone.
+- Commercial terms and required documents.
+- Evaluation criteria and weights.
+- Invited vendors and clarification history.
+
+Support:
+- Invitations to selected vendors.
+- Secure authenticated vendor submissions.
+- Reminders and deadline extensions.
+- RFQ amendments with notifications and acknowledgement.
+- Clarifications shared with all relevant participants where appropriate.
+- Draft and submitted quotations.
+- Revised offers with full version history.
+- Configurable sealed bidding: evaluators cannot view offers before opening.
+- Explicit handling of late offers.
+
+A submitted quotation must be preserved as a versioned snapshot. Vendors cannot silently alter an offer already under evaluation.
+
+## 7. Receive and normalize offers
+
+Vendors must be able to submit:
+- Line-item prices.
+- Currency and applicable taxes.
+- Discounts.
+- Freight and other charges.
+- MOQ and offered pack sizes.
+- Lead time and delivery schedule.
+- Payment terms and quotation validity.
+- Availability and partial supply.
+- Alternatives and technical deviations.
+- Warranty and supporting attachments.
+
+Allow internal users to enter offers received outside the portal, recording their source and attaching the original document.
+
+Support CSV and Excel import with validation and a review screen before saving.
+
+Optional AI-assisted PDF extraction must:
+- Show extracted values and source references.
+- Flag uncertainty.
+- Require human confirmation.
+- Never invent missing prices, quantities, or terms.
+
+## 8. Quotation comparison and supplier selection
+
+Build a side-by-side comparison matrix showing:
+- Vendors as columns and requested lines as rows.
+- Unit prices normalized to the requested unit.
+- Offered quantity, pack size, and MOQ.
+- Discounts, freight, taxes, and other charges.
+- Delivery time, availability, and validity.
+- Payment terms.
+- Technical compliance and deviations.
+- Missing or noncompliant lines.
+- Historical prices and supplier performance.
+
+Calculate both payable total and evaluation cost. Handle recoverable versus nonrecoverable taxes according to configurable entity rules.
+
+For currency comparison:
+- Use a recorded exchange rate, source, and timestamp.
+- Preserve the original offer currency.
+- Snapshot the rate used for each evaluation.
+- Clearly distinguish estimates from final accounting values.
+
+Make calculation formulas visible and exportable. Do not assume missing charges are zero.
+
+Support:
+- Lowest compliant price.
+- Weighted evaluation across price, quality, lead time, payment terms, and supplier performance.
+- Mandatory eligibility requirements before weighted scoring.
+- Configurable and documented score normalization.
+- Whole-RFQ awards and split awards by line or quantity.
+- Capacity, MOQ, and delivery constraints.
+- Recorded reasons for selecting a more expensive supplier.
+
+Recommendations must be explainable. AI may summarize tradeoffs but cannot approve purchases or override eligibility rules.
+
+## 9. Approvals and auditability
+
+Build configurable approval workflows based on:
+- Legal entity.
+- Department and cost center.
+- Purchase amount and currency.
+- Category.
+- Budget availability.
+- Emergency or single-source status.
+- Vendor risk.
+
+Support sequential and parallel approvals, delegation, escalation, rejection, and requests for changes.
+
+Enforce separation of duties and configurable restrictions on self-approval.
+
+Material changes to an approved transaction must trigger reapproval. Preserve the approval rules and transaction version used for each decision.
+
+Record an append-only audit trail showing actor, timestamp, action, reason, and relevant before-and-after values. Ordinary administrators must not be able to edit audit history.
+
+## 10. Purchase orders and supplier fulfilment
+
+Generate purchase orders from approved awards.
+
+Include:
+- Buyer and supplier legal details.
+- Delivery and billing addresses.
+- Items, quantities, units, prices, taxes, and currency.
+- Delivery schedule and payment terms.
+- Contract reference and attachments.
+- Approval history and document version.
+
+Support:
+- Supplier acknowledgement.
+- Partial acceptance.
+- Partial deliveries.
+- Backorders.
+- Amendments with versioning and approval.
+- Cancellations.
+- Returns and credit references.
+- Outstanding quantity and overdue tracking.
+
+Generate professional downloadable PDF purchase orders.
+
+## 11. Receiving and inventory
+
+Implement an inventory transaction ledger, not an editable stock counter.
+
+Support:
+- Goods receipts linked to purchase order lines.
+- Partial receipts.
+- Inspection, acceptance, rejection, and quarantine.
+- Warehouse and bin locations.
+- Reservations and releases.
+- Departmental stock issues.
+- Warehouse transfers with in-transit status.
+- Returns.
+- Stock counts and approved adjustments.
+- Optional batches, serial numbers, and expiry dates.
+
+Show:
+- On-hand stock.
+- Reserved stock.
+- Available stock.
+- Quarantined stock.
+- In-transit stock.
+- Incoming purchase order quantities.
+
+Prevent duplicate posting and enforce configurable negative-stock rules.
+
+Provide reorder recommendations based on consumption, safety stock, lead time, and outstanding orders. Identify eligible suppliers for each recommendation.
+
+Support a documented inventory valuation method and prevent silent retrospective changes to posted transaction costs.
+
+## 12. Invoices and finance
+
+Support vendor invoice capture and:
+- Duplicate invoice detection.
+- Two-way matching for applicable services.
+- Three-way matching between purchase orders, accepted receipts, and invoices.
+- Configurable price and quantity tolerances.
+- Exception queues.
+- Credit notes.
+- Due dates and payment status.
+- Finance exports.
+
+Payments must be recorded or synced from an authorized finance integration. Do not claim a payment has occurred merely because an invoice was approved.
+
+Keep this platform’s purchasing and matching scope explicit. Do not pretend it replaces a full general ledger.
+
+## 13. Contracts and supplier performance
+
+Track:
+- Contract validity and renewal reminders.
+- Approved pricing and volume tiers.
+- Entity and category coverage.
+- Contract utilization.
+- Off-contract purchases.
+- On-time delivery.
+- Fill rate.
+- Quality rejections.
+- Response time.
+- Price variance.
+- Disputes and resolution history.
+
+Display metric definitions and supporting transactions.
+
+## 14. Dashboards and reporting
+
+Create dashboards for:
+- Procurement workload.
+- Open requisitions and pending approvals.
+- RFQ response rates.
+- Upcoming deadlines.
+- Spend by entity, department, category, and vendor.
+- Budget utilization.
+- Purchase price variance.
+- Overdue orders.
+- Inventory shortages and excess stock.
+- Supplier performance.
+- Invoice matching exceptions.
+- Contract and document expiry.
+
+Clearly define savings baselines and avoid unsupported savings claims.
+
+Provide searchable tables, filters, drill-downs, and CSV/Excel exports.
+
+## 15. Integrations and automation
+
+Create documented API and webhook boundaries for ERP, accounting, identity, email, and catalog systems.
+
+Provide:
+- Retryable background jobs.
+- Idempotency keys.
+- Delivery and failure logs.
+- Secure webhook verification.
+- Notifications with links to the relevant records.
+- Configurable scheduled reminders.
+
+Design adapter interfaces for Odoo, SAP, Microsoft Dynamics, and Oracle. Implement only integrations that can be tested with available credentials or a documented sandbox. Label all other adapters as unimplemented.
+
+Use a local email inbox for development. Do not send real invitations without explicit deployment configuration.
+
+## 16. Security and reliability
+
+Include:
+- Strong authentication and production SSO integration boundaries.
+- Secure sessions.
+- Tenant and entity isolation.
+- Server-side authorization.
+- Encryption in transit and appropriate protection for sensitive data.
+- Secret management outside source code.
+- Secure uploads with size/type limits and malware-scanning integration.
+- Expiring document download links.
+- Rate limiting.
+- Backups and documented restore procedures.
+- Structured logs and monitoring.
+- Configurable retention and deletion policies.
+
+Do not claim universal legal or regulatory compliance. Identify requirements that need country-specific review.
+
+Use decimal-safe money calculations and database transactions for inventory posting, awards, approvals, and financial commitments.
+
+## 17. User experience
+
+Build a polished enterprise interface with:
+- Internal procurement workspace.
+- Separate vendor portal.
+- Global search.
+- Role-specific navigation.
+- Status timelines and activity histories.
+- Actionable empty states.
+- Clear validation and error messages.
+- Accessible forms and tables.
+- Responsive layouts.
+
+Important screens:
+1. Procurement dashboard.
+2. Supplier directory and supplier profile.
+3. Product/service catalog and supplier mappings.
+4. Requisition editor and approval inbox.
+5. RFQ workspace.
+6. Vendor invitation and onboarding.
+7. Vendor quotation submission.
+8. Quotation comparison and award.
+9. Purchase order details.
+10. Receiving workspace.
+11. Inventory overview and movement history.
+12. Invoice matching.
+13. Contracts and performance.
+14. Reports and administration.
+
+## 18. Build order and demonstration
+
+Implement a complete core workflow first:
+Requisition → approval → RFQ → vendor invitation → quotation submission → comparison → award approval → purchase order → partial receipt → inventory update → invoice matching.
+
+Then add the remaining modules in coherent increments.
+
+Seed clearly fictional demonstration data with:
+- One multinational tenant with at least three legal entities.
+- Multiple currencies, departments, and warehouses.
+- A second tenant for isolation testing.
+- At least eight vendors and thirty products/services.
+- Different pack sizes, currencies, freight terms, and lead times.
+- A split award, partial delivery, rejected receipt, and invoice exception.
+
+Create a reproducible demonstration showing why the cheapest unit price may not be the lowest compliant delivered cost.
+
+## 19. Verification and deliverables
+
+Deliver:
+- Working source code.
+- Database schema and migrations.
+- Seed data.
+- Environment variable example without secrets.
+- Docker configuration.
+- Setup and deployment instructions.
+- Architecture and permissions documentation.
+- API documentation.
+- A short administrator and vendor user guide.
+- A requirements coverage matrix.
+
+Test:
+- Tenant and vendor isolation.
+- Approval authorization and reapproval.
+- Unit and pack conversions.
+- Currency and quotation calculations.
+- Split awards and quantity limits.
+- Partial receipts and inventory consistency.
+- Concurrent and duplicate submissions.
+- Invoice matching and duplicate detection.
+- One end-to-end procurement workflow.
+
+Run relevant automated checks and report actual results. Identify any incomplete functionality or untested integration plainly.
+
+Proceed with implementation until the core workflow is runnable and verified. Do not stop after producing the plan or interface.
