@@ -1,0 +1,4 @@
+Extract the contents into your cloned repository root, including .github and .gitignore.
+Then run: git add . && git commit -m "Restore application source and CI" && git push
+Validation: Prisma generation, TypeScript, 17 tests and Next.js production build passed on 2026-10-13.
+Deployment requires PostgreSQL and environment configuration; see docs/DEPLOY_VERCEL.md.

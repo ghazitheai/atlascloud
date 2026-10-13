@@ -1,0 +1,555 @@
+generator client {
+  provider = "prisma-client-js"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Tenant {
+  id   String @id @default(cuid())
+  name String
+}
+
+model Entity {
+  id       String @id @default(cuid())
+  tenantId String
+  name     String
+  country  String
+  currency String
+  timezone String @default("UTC")
+  policy   Json   @default("{}")
+
+  @@index([tenantId])
+}
+
+model Department {
+  id         String @id @default(cuid())
+  tenantId   String
+  entityId   String
+  name       String
+  costCenter String
+
+  @@index([tenantId, entityId])
+}
+
+model Warehouse {
+  id       String @id @default(cuid())
+  tenantId String
+  entityId String
+  name     String
+  location String
+
+  @@index([tenantId, entityId])
+}
+
+model User {
+  id           String       @id @default(cuid())
+  tenantId     String
+  name         String
+  email        String       @unique
+  passwordHash String
+  role         String
+  vendorId     String?
+  active       Boolean      @default(true)
+  memberships  UserEntity[]
+  sessions     Session[]
+}
+
+model UserEntity {
+  userId   String
+  entityId String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, entityId])
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+model Vendor {
+  id             String    @id @default(cuid())
+  tenantId       String
+  name           String
+  tradingName    String?
+  email          String
+  taxId          String?
+  registrationId String?
+  countries      String[]
+  currencies     String[]
+  deliveryAreas  String[]
+  categories     String[]
+  paymentTerms   String    @default("Net 30")
+  status         String    @default("PENDING")
+  qualification  String    @default("Unverified vendor claims")
+  verifiedAt     DateTime?
+  reason         String?
+  contacts       Json      @default("[]")
+  score          Decimal   @default(0) @db.Decimal(6, 2)
+
+  @@unique([tenantId, email])
+  @@index([tenantId, status])
+}
+
+model Invitation {
+  id         String    @id @default(cuid())
+  tenantId   String
+  entityId   String
+  vendorId   String
+  tokenHash  String    @unique
+  email      String
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  status     String    @default("QUEUED")
+
+  @@index([tenantId, entityId])
+}
+
+model Product {
+  id             String  @id @default(cuid())
+  tenantId       String
+  sku            String
+  name           String
+  category       String
+  manufacturer   String?
+  kind           String  @default("GOODS")
+  baseUnit       String  @default("piece")
+  purchaseUnit   String  @default("piece")
+  packFactor     Decimal @default(1) @db.Decimal(18, 6)
+  specifications String  @default("")
+  reorderPoint   Decimal @default(10) @db.Decimal(18, 6)
+  targetStock    Decimal @default(100) @db.Decimal(18, 6)
+  stockTracked   Boolean @default(true)
+
+  @@unique([tenantId, sku])
+}
+
+model SupplierItem {
+  id              String    @id @default(cuid())
+  tenantId        String
+  vendorId        String
+  productId       String
+  vendorSku       String
+  manufacturerRef String?
+  unit            String
+  packFactor      Decimal   @db.Decimal(18, 6)
+  price           Decimal   @db.Decimal(18, 6)
+  currency        String
+  moq             Decimal   @default(1) @db.Decimal(18, 6)
+  leadDays        Int
+  country         String
+  contractId      String?
+  verifiedAt      DateTime?
+  priceHistory    Json      @default("[]")
+
+  @@unique([vendorId, productId, country])
+  @@index([tenantId, productId])
+}
+
+model Budget {
+  id           String  @id @default(cuid())
+  tenantId     String
+  entityId     String
+  departmentId String
+  name         String
+  period       String
+  currency     String
+  allocated    Decimal @db.Decimal(18, 6)
+  committed    Decimal @default(0) @db.Decimal(18, 6)
+  actual       Decimal @default(0) @db.Decimal(18, 6)
+
+  @@index([tenantId, entityId])
+}
+
+model Requisition {
+  id            String            @id @default(cuid())
+  tenantId      String
+  entityId      String
+  reference     String
+  requesterId   String
+  departmentId  String
+  warehouseId   String
+  budgetId      String?
+  justification String
+  requiredAt    DateTime
+  status        String            @default("DRAFT")
+  version       Int               @default(1)
+  emergency     Boolean           @default(false)
+  singleSource  Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  lines         RequisitionLine[]
+
+  @@unique([tenantId, reference])
+  @@index([tenantId, entityId, status])
+}
+
+model RequisitionLine {
+  id                 String      @id @default(cuid())
+  requisitionId      String
+  productId          String
+  quantity           Decimal     @db.Decimal(18, 6)
+  estimatedUnitPrice Decimal     @db.Decimal(18, 6)
+  specifications     String      @default("")
+  requisition        Requisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+}
+
+model Approval {
+  id             String    @id @default(cuid())
+  tenantId       String
+  entityId       String
+  targetType     String
+  targetId       String
+  targetVersion  Int
+  requesterId    String
+  role           String    @default("APPROVER")
+  status         String    @default("PENDING")
+  policySnapshot Json
+  decidedBy      String?
+  reason         String?
+  decidedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([targetType, targetId, targetVersion])
+  @@index([tenantId, entityId, status])
+}
+
+model Rfq {
+  id            String      @id @default(cuid())
+  tenantId      String
+  entityId      String
+  reference     String
+  creatorId     String
+  requisitionId String?
+  warehouseId   String
+  budgetId      String?
+  title         String
+  status        String      @default("DRAFT")
+  version       Int         @default(1)
+  deadline      DateTime
+  sealed        Boolean     @default(true)
+  openedAt      DateTime?
+  latePolicy    String      @default("REJECT")
+  terms         String      @default("Net 30; delivery to requested warehouse")
+  weights       Json        @default("{\"price\":60,\"lead\":20,\"performance\":20}")
+  createdAt     DateTime    @default(now())
+  lines         RfqLine[]
+  vendors       RfqVendor[]
+  quotes        Quote[]
+
+  @@unique([tenantId, reference])
+  @@index([tenantId, entityId])
+}
+
+model RfqLine {
+  id             String  @id @default(cuid())
+  rfqId          String
+  productId      String
+  quantity       Decimal @db.Decimal(18, 6)
+  unit           String
+  specifications String  @default("")
+  rfq            Rfq     @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+}
+
+model RfqVendor {
+  rfqId               String
+  vendorId            String
+  tenantId            String
+  status              String @default("INVITED")
+  acknowledgedVersion Int    @default(1)
+  rfq                 Rfq    @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+
+  @@id([rfqId, vendorId])
+}
+
+model Quote {
+  id           String      @id @default(cuid())
+  tenantId     String
+  entityId     String
+  rfqId        String
+  vendorId     String
+  version      Int
+  rfqVersion   Int
+  currency     String
+  fxRate       Decimal     @db.Decimal(18, 8)
+  fxSource     String
+  fxAt         DateTime
+  freight      Decimal     @db.Decimal(18, 6)
+  otherCharges Decimal     @db.Decimal(18, 6)
+  paymentTerms String
+  validUntil   DateTime
+  leadDays     Int
+  status       String      @default("SUBMITTED")
+  source       String      @default("PORTAL")
+  createdAt    DateTime    @default(now())
+  rfq          Rfq         @relation(fields: [rfqId], references: [id])
+  lines        QuoteLine[]
+
+  @@unique([rfqId, vendorId, version])
+  @@index([tenantId, entityId])
+}
+
+model QuoteLine {
+  id              String  @id @default(cuid())
+  quoteId         String
+  rfqLineId       String
+  offeredQuantity Decimal @db.Decimal(18, 6)
+  packFactor      Decimal @db.Decimal(18, 6)
+  unitPrice       Decimal @db.Decimal(18, 6)
+  discountPercent Decimal @default(0) @db.Decimal(6, 3)
+  taxPercent      Decimal @default(0) @db.Decimal(6, 3)
+  taxRecoverable  Boolean @default(false)
+  moq             Decimal @default(1) @db.Decimal(18, 6)
+  compliant       Boolean @default(true)
+  deviation       String  @default("")
+  quote           Quote   @relation(fields: [quoteId], references: [id])
+
+  @@unique([quoteId, rfqLineId])
+}
+
+model Award {
+  id                 String      @id @default(cuid())
+  tenantId           String
+  entityId           String
+  rfqId              String      @unique
+  requesterId        String
+  version            Int         @default(1)
+  status             String      @default("PENDING")
+  reason             String
+  evaluationSnapshot Json
+  createdAt          DateTime    @default(now())
+  lines              AwardLine[]
+}
+
+model AwardLine {
+  id          String  @id @default(cuid())
+  awardId     String
+  quoteLineId String
+  quantity    Decimal @db.Decimal(18, 6)
+  award       Award   @relation(fields: [awardId], references: [id])
+
+  @@unique([awardId, quoteLineId])
+}
+
+model PurchaseOrder {
+  id           String              @id @default(cuid())
+  tenantId     String
+  entityId     String
+  reference    String
+  vendorId     String
+  awardId      String
+  warehouseId  String
+  budgetId     String?
+  currency     String
+  baseCurrency String
+  fxRate       Decimal             @db.Decimal(18, 8)
+  freight      Decimal             @db.Decimal(18, 6)
+  otherCharges Decimal             @db.Decimal(18, 6)
+  total        Decimal             @db.Decimal(18, 6)
+  baseTotal    Decimal             @db.Decimal(18, 6)
+  status       String              @default("ISSUED")
+  version      Int                 @default(1)
+  dueAt        DateTime
+  paymentTerms String
+  createdAt    DateTime            @default(now())
+  lines        PurchaseOrderLine[]
+
+  @@unique([tenantId, reference])
+  @@unique([awardId, vendorId])
+  @@index([tenantId, entityId])
+}
+
+model PurchaseOrderLine {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  productId       String
+  quoteLineId     String
+  quantity        Decimal       @db.Decimal(18, 6)
+  unit            String
+  packFactor      Decimal       @db.Decimal(18, 6)
+  unitPrice       Decimal       @db.Decimal(18, 6)
+  taxPercent      Decimal       @db.Decimal(6, 3)
+  received        Decimal       @default(0) @db.Decimal(18, 6)
+  rejected        Decimal       @default(0) @db.Decimal(18, 6)
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+}
+
+model Receipt {
+  id              String        @id @default(cuid())
+  tenantId        String
+  entityId        String
+  purchaseOrderId String
+  warehouseId     String
+  postedBy        String
+  idempotencyKey  String
+  createdAt       DateTime      @default(now())
+  lines           ReceiptLine[]
+
+  @@unique([tenantId, idempotencyKey])
+}
+
+model ReceiptLine {
+  id                  String  @id @default(cuid())
+  receiptId           String
+  purchaseOrderLineId String
+  accepted            Decimal @db.Decimal(18, 6)
+  rejected            Decimal @db.Decimal(18, 6)
+  reason              String
+  receipt             Receipt @relation(fields: [receiptId], references: [id])
+}
+
+model StockMovement {
+  id              String   @id @default(cuid())
+  tenantId        String
+  entityId        String
+  warehouseId     String
+  productId       String
+  type            String
+  quantity        Decimal  @db.Decimal(18, 6)
+  reservedDelta   Decimal  @default(0) @db.Decimal(18, 6)
+  quarantineDelta Decimal  @default(0) @db.Decimal(18, 6)
+  unitCost        Decimal  @db.Decimal(18, 6)
+  reference       String
+  actorId         String
+  reason          String
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, entityId, warehouseId, productId])
+}
+
+model Invoice {
+  id              String        @id @default(cuid())
+  tenantId        String
+  entityId        String
+  vendorId        String
+  purchaseOrderId String
+  number          String
+  currency        String
+  total           Decimal       @db.Decimal(18, 6)
+  dueAt           DateTime
+  status          String        @default("EXCEPTION")
+  exceptions      Json
+  matchSnapshot   Json
+  createdBy       String
+  createdAt       DateTime      @default(now())
+  lines           InvoiceLine[]
+  payments        Payment[]
+
+  @@unique([tenantId, vendorId, number])
+  @@index([tenantId, entityId])
+}
+
+model InvoiceLine {
+  id                  String  @id @default(cuid())
+  invoiceId           String
+  purchaseOrderLineId String
+  quantity            Decimal @db.Decimal(18, 6)
+  unitPrice           Decimal @db.Decimal(18, 6)
+  invoice             Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@unique([invoiceId, purchaseOrderLineId])
+}
+
+model Payment {
+  id         String   @id @default(cuid())
+  tenantId   String
+  entityId   String
+  invoiceId  String
+  amount     Decimal  @db.Decimal(18, 6)
+  reference  String
+  source     String
+  recordedBy String
+  paidAt     DateTime
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id])
+
+  @@unique([tenantId, reference])
+}
+
+model Contract {
+  id         String   @id @default(cuid())
+  tenantId   String
+  entityId   String
+  vendorId   String
+  reference  String
+  name       String
+  validFrom  DateTime
+  validUntil DateTime
+  currency   String
+  ceiling    Decimal  @db.Decimal(18, 6)
+  categories String[]
+
+  @@unique([tenantId, reference])
+}
+
+model Document {
+  id          String    @id @default(cuid())
+  tenantId    String
+  entityId    String
+  vendorId    String?
+  name        String
+  key         String    @unique
+  contentType String
+  size        Int
+  scanStatus  String    @default("PENDING")
+  expiresAt   DateTime?
+  uploadedBy  String
+  createdAt   DateTime  @default(now())
+}
+
+model Audit {
+  id         String   @id @default(cuid())
+  tenantId   String
+  entityId   String?
+  actorId    String
+  action     String
+  targetType String
+  targetId   String
+  reason     String
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, entityId, createdAt])
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  tenantId    String
+  entityId    String
+  type        String
+  payload     Json
+  status      String    @default("PENDING")
+  attempts    Int       @default(0)
+  availableAt DateTime  @default(now())
+  lockedAt    DateTime?
+  lastError   String?
+  deliveredAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([status, availableAt])
+}
+
+model Idempotency {
+  tenantId  String
+  key       String
+  actorId   String
+  operation String
+  result    Json
+  createdAt DateTime @default(now())
+
+  @@id([tenantId, key])
+}
+
+model RateLimit {
+  key     String   @id
+  count   Int      @default(1)
+  resetAt DateTime
+}
