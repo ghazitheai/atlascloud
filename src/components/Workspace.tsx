@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { parseCsv } from "@/lib/csv";
 type Row = Record<string, any>;
 type Data = Record<string, any>;
 type Dialog = { kind: string; target?: Row };
@@ -195,6 +196,53 @@ function csv(name: string, rows: Row[]) {
   a.download = "atlas-" + name + ".csv";
   a.click();
   URL.revokeObjectURL(a.href);
+}
+const importColumns: Record<string, string[]> = {
+  products: [
+    "sku",
+    "name",
+    "category",
+    "kind",
+    "baseUnit",
+    "purchaseUnit",
+    "packFactor",
+    "specifications",
+    "reorderPoint",
+    "targetStock",
+  ],
+  vendors: [
+    "name",
+    "email",
+    "countries",
+    "currencies",
+    "categories",
+    "deliveryAreas",
+    "taxId",
+  ],
+  "supplier-items": [
+    "vendorEmail",
+    "productSku",
+    "vendorSku",
+    "unit",
+    "packFactor",
+    "price",
+    "currency",
+    "moq",
+    "leadDays",
+    "country",
+  ],
+};
+function downloadImportTemplate(kind: string) {
+  const columns = importColumns[kind];
+  if (!columns) return;
+  const blob = new Blob(["\uFEFF" + columns.join(",") + "\r\n"], {
+    type: "text/csv;charset=utf-8",
+  });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `atlas-${kind}-template.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 export default function Workspace() {
   const [data, setData] = useState<Data | null>(null);
@@ -491,12 +539,27 @@ export default function Workspace() {
               {page === "vendors" &&
                 buyer &&
                 button("+ Add supplier", () => open("vendor"), false)}
+              {page === "vendors" &&
+                buyer &&
+                button("Import suppliers CSV", () =>
+                  open("csvImport", { importType: "vendors" }),
+                )}
               {page === "catalog" &&
                 buyer &&
                 button("+ Supplier mapping", () => open("mapping"), false)}
               {page === "catalog" &&
+                buyer &&
+                button("Import supplier enrichment CSV", () =>
+                  open("csvImport", { importType: "supplier-items" }),
+                )}
+              {page === "catalog" &&
                 role === "GROUP_ADMIN" &&
                 button("+ Add product", () => open("masterProduct"), false)}
+              {page === "catalog" &&
+                role === "GROUP_ADMIN" &&
+                button("Import products CSV", () =>
+                  open("csvImport", { importType: "products" }),
+                )}
               {page === "inventory" &&
                 receiving &&
                 button("+ Stock movement", () => open("stock"), false)}
@@ -1840,6 +1903,8 @@ function ActionDialog({
     allocated: "",
   };
   const [form, setForm] = useState<Row>(defaults);
+  const [importRows, setImportRows] = useState<Row[]>([]);
+  const [importError, setImportError] = useState("");
   const [lines, setLines] = useState<Row[]>(() => {
     if (["receipt", "invoice"].includes(k))
       return t.lines.map((l: Row) => ({
@@ -2184,6 +2249,17 @@ function ActionDialog({
           country: form.country,
         };
       }
+      if (k === "csvImport") {
+        const type = String(t.importType);
+        path = "imports/" + type;
+        body = {
+          rows: importRows.map((row) =>
+            type === "supplier-items"
+              ? { ...row, leadDays: Number(row.leadDays) }
+              : row,
+          ),
+        };
+      }
       if (!path) throw new Error("No action selected");
       await onAction(path, body, k === "receipt" ? postingKey : undefined);
       close();
@@ -2215,6 +2291,14 @@ function ActionDialog({
     masterWarehouse: "Add delivery warehouse",
     masterBudget: "Add budget",
     masterProduct: "Add product or service",
+    csvImport:
+      "Import " +
+      (t.importType === "products"
+        ? "products"
+        : t.importType === "vendors"
+          ? "suppliers"
+          : "supplier enrichment") +
+      " from CSV",
   };
   return (
     <div
@@ -2256,6 +2340,90 @@ function ActionDialog({
           </div>
         ) : (
           <form onSubmit={submit}>
+            {k === "csvImport" && (
+              <>
+                <p className="muted" style={{ marginTop: 15 }}>
+                  Imports are validated and applied as one transaction. Any
+                  invalid row rejects the whole file. Existing products and
+                  suppliers are not overwritten; supplier enrichment updates
+                  matching price history. Supplier imports remain pending
+                  qualification.
+                </p>
+                <p>
+                  Required columns:{" "}
+                  <code>{importColumns[String(t.importType)]?.join(", ")}</code>
+                </p>
+                <p className="muted tiny">
+                  Maximum 250 rows and 512 KB per file. Multiple countries,
+                  currencies, categories, or delivery areas use semicolon
+                  separators.
+                </p>
+                <button
+                  className="secondary small"
+                  type="button"
+                  onClick={() => downloadImportTemplate(String(t.importType))}
+                >
+                  Download CSV template
+                </button>
+                <label style={{ marginTop: 15 }}>
+                  CSV file
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      setImportRows([]);
+                      setImportError("");
+                      if (!file) return;
+                      if (file.size > 512 * 1024) {
+                        setImportError("CSV files must be 512 KB or smaller");
+                        return;
+                      }
+                      try {
+                        const parsed = parseCsv(await file.text());
+                        const expected = importColumns[String(t.importType)];
+                        const actual = Object.keys(parsed[0] ?? {});
+                        if (
+                          actual.length !== expected.length ||
+                          expected.some((column) =>
+                            actual.includes(column.toLowerCase()),
+                          )
+                        )
+                          throw new Error(
+                            "CSV columns must match the downloaded template",
+                          );
+                        if (parsed.length > 250)
+                          throw new Error("Import at most 250 rows at a time");
+                        setImportRows(
+                          parsed.map((row) =>
+                            Object.fromEntries(
+                              expected.map((column) => [
+                                column,
+                                row[column.toLowerCase()],
+                              ]),
+                            ),
+                          ),
+                        );
+                      } catch (e) {
+                        setImportError(
+                          e instanceof Error ? e.message : "Invalid CSV file",
+                        );
+                      }
+                    }}
+                  />
+                </label>
+                {importRows.length > 0 && (
+                  <p className="banner">
+                    {importRows.length} rows ready to validate and import.
+                  </p>
+                )}
+                {importError && (
+                  <p className="error" role="alert">
+                    {importError}
+                  </p>
+                )}
+              </>
+            )}
             {[
               "requisition",
               "vendorInvite",
@@ -2847,12 +3015,17 @@ function ActionDialog({
               >
                 Cancel
               </button>
-              <button type="submit" disabled={busy}>
+              <button
+                type="submit"
+                disabled={busy || (k === "csvImport" && !importRows.length)}
+              >
                 {busy
                   ? "Saving…"
-                  : ["receipt", "invoice", "payment"].includes(k)
-                    ? "Post & validate"
-                    : "Save & continue"}
+                  : k === "csvImport"
+                    ? `Import ${importRows.length} rows`
+                    : ["receipt", "invoice", "payment"].includes(k)
+                      ? "Post & validate"
+                      : "Save & continue"}
               </button>
             </div>
           </form>

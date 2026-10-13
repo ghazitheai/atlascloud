@@ -170,6 +170,12 @@ export async function POST(req: Request, ctx: Context) {
       result = await s.createBudget(a, b);
     else if (p[0] === "master-data" && p[1] === "products")
       result = await s.createProduct(a, b);
+    else if (p[0] === "imports" && p[1] === "products")
+      result = await s.importProducts(a, b.rows);
+    else if (p[0] === "imports" && p[1] === "vendors")
+      result = await s.importVendors(a, b.rows);
+    else if (p[0] === "imports" && p[1] === "supplier-items")
+      result = await s.importSupplierItems(a, b.rows);
     else if (p[0] === "supplier-items") result = await s.supplierMapping(a, b);
     else if (p[0] === "documents" && p[1] === "upload")
       result = await upload(a, b);
