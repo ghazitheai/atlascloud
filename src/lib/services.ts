@@ -1695,6 +1695,153 @@ export async function createVendor(a: Actor, input: unknown) {
     return v;
   });
 }
+export async function createDepartment(a: Actor, input: unknown) {
+  internal(a);
+  const p = z
+    .object({ entityId: id, name: text.max(120), costCenter: text.max(80) })
+    .parse(input);
+  authorize(a, ["GROUP_ADMIN", "ENTITY_ADMIN"], p.entityId);
+  return transaction(async (tx) => {
+    await entity(tx, a, p.entityId);
+    const department = await tx.department.create({
+      data: { ...p, tenantId: a.tenantId },
+    });
+    await audit(
+      tx,
+      a,
+      p.entityId,
+      "CREATE",
+      "Department",
+      department.id,
+      "Department added to entity master data",
+      undefined,
+      department,
+    );
+    return department;
+  });
+}
+export async function createWarehouse(a: Actor, input: unknown) {
+  internal(a);
+  const p = z
+    .object({ entityId: id, name: text.max(120), location: text.max(500) })
+    .parse(input);
+  authorize(a, ["GROUP_ADMIN", "ENTITY_ADMIN"], p.entityId);
+  return transaction(async (tx) => {
+    await entity(tx, a, p.entityId);
+    const warehouse = await tx.warehouse.create({
+      data: { ...p, tenantId: a.tenantId },
+    });
+    await audit(
+      tx,
+      a,
+      p.entityId,
+      "CREATE",
+      "Warehouse",
+      warehouse.id,
+      "Warehouse added to entity master data",
+      undefined,
+      warehouse,
+    );
+    return warehouse;
+  });
+}
+export async function createBudget(a: Actor, input: unknown) {
+  internal(a);
+  const p = z
+    .object({
+      entityId: id,
+      departmentId: id,
+      name: text.max(120),
+      period: z.string().trim().min(1).max(40),
+      currency: z
+        .string()
+        .trim()
+        .length(3)
+        .transform((x) => x.toUpperCase()),
+      allocated: positive,
+    })
+    .parse(input);
+  authorize(a, ["GROUP_ADMIN", "ENTITY_ADMIN"], p.entityId);
+  return transaction(async (tx) => {
+    const e = await entity(tx, a, p.entityId);
+    ensure(
+      p.currency === e.currency,
+      "Budget currency must match the legal entity currency",
+    );
+    const department = await tx.department.findFirst({
+      where: {
+        id: p.departmentId,
+        tenantId: a.tenantId,
+        entityId: p.entityId,
+      },
+    });
+    ensure(department, "Department not found in this entity", 404);
+    const budget = await tx.budget.create({
+      data: {
+        ...p,
+        tenantId: a.tenantId,
+        committed: 0,
+        actual: 0,
+      },
+    });
+    await audit(
+      tx,
+      a,
+      p.entityId,
+      "CREATE",
+      "Budget",
+      budget.id,
+      "Budget added to entity master data",
+      undefined,
+      budget,
+    );
+    return budget;
+  });
+}
+export async function createProduct(a: Actor, input: unknown) {
+  internal(a);
+  authorize(a, ["GROUP_ADMIN"]);
+  const p = z
+    .object({
+      sku: z
+        .string()
+        .trim()
+        .min(1)
+        .max(80)
+        .transform((x) => x.toUpperCase()),
+      name: text.max(200),
+      category: text.max(120),
+      kind: z.enum(["GOODS", "SERVICE"]).default("GOODS"),
+      baseUnit: text.max(40),
+      purchaseUnit: text.max(40),
+      packFactor: positive,
+      specifications: z.string().trim().max(2000).default(""),
+      reorderPoint: decimal,
+      targetStock: positive,
+    })
+    .parse(input);
+  return transaction(async (tx) => {
+    const product = await tx.product.create({
+      data: {
+        ...p,
+        tenantId: a.tenantId,
+        stockTracked: p.kind === "GOODS",
+      },
+    });
+    await audit(
+      tx,
+      a,
+      null,
+      "CREATE",
+      "Product",
+      product.id,
+      "Product added to tenant catalog",
+      undefined,
+      product,
+    );
+    return product;
+  });
+}
 export async function qualifyVendor(
   a: Actor,
   vendorId: string,
