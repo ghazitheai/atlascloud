@@ -162,6 +162,14 @@ export async function POST(req: Request, ctx: Context) {
       result = await s.qualifyVendor(a, p[1], b);
     else if (p[0] === "vendors" && p[2] === "invite")
       result = await s.inviteVendor(a, p[1], b);
+    else if (p[0] === "master-data" && p[1] === "departments")
+      result = await s.createDepartment(a, b);
+    else if (p[0] === "master-data" && p[1] === "warehouses")
+      result = await s.createWarehouse(a, b);
+    else if (p[0] === "master-data" && p[1] === "budgets")
+      result = await s.createBudget(a, b);
+    else if (p[0] === "master-data" && p[1] === "products")
+      result = await s.createProduct(a, b);
     else if (p[0] === "supplier-items") result = await s.supplierMapping(a, b);
     else if (p[0] === "documents" && p[1] === "upload")
       result = await upload(a, b);

@@ -95,6 +95,76 @@ describe("Procurement core · database-backed verification", () => {
       }),
     ).rejects.toThrow("Product not found");
   });
+  it("lets administrators configure the master data required for requisitions", async () => {
+    const { s, db } = await libs();
+    const admin = a("admin");
+    const department = await s.createDepartment(admin, {
+      entityId: "entity-eg",
+      name: "New Test Operations",
+      costCenter: "TEST-OPS",
+    });
+    const warehouse = await s.createWarehouse(admin, {
+      entityId: "entity-eg",
+      name: "New Test Warehouse",
+      location: "Fictional test location",
+    });
+    const budget = await s.createBudget(admin, {
+      entityId: "entity-eg",
+      departmentId: department.id,
+      name: "New Test Annual Budget",
+      period: "FY2026",
+      currency: "EGP",
+      allocated: "10000",
+    });
+    const product = await s.createProduct(admin, {
+      sku: "new-test-item",
+      name: "New test item",
+      category: "Testing",
+      kind: "GOODS",
+      baseUnit: "piece",
+      purchaseUnit: "box",
+      packFactor: "10",
+      reorderPoint: "2",
+      targetStock: "100",
+    });
+    expect(department.tenantId).toBe(admin.tenantId);
+    expect(warehouse.entityId).toBe("entity-eg");
+    expect(budget.departmentId).toBe(department.id);
+    expect(budget.currency).toBe("EGP");
+    expect(product.sku).toBe("NEW-TEST-ITEM");
+    expect(product.stockTracked).toBe(true);
+    expect(
+      await db.audit.count({
+        where: {
+          targetId: {
+            in: [department.id, warehouse.id, budget.id, product.id],
+          },
+        },
+      }),
+    ).toBe(4);
+    await expect(
+      s.createProduct(a("buyer"), {
+        sku: "unauthorized-test-item",
+        name: "Unauthorized item",
+        category: "Testing",
+        baseUnit: "piece",
+        purchaseUnit: "piece",
+        packFactor: 1,
+        reorderPoint: 0,
+        targetStock: 1,
+      }),
+    ).rejects.toThrow("permission");
+    await expect(
+      s.createBudget(admin, {
+        entityId: "entity-eg",
+        departmentId: "dep-entity-ae",
+        name: "Invalid cross-entity budget",
+        period: "FY2026",
+        currency: "EGP",
+        allocated: 100,
+      }),
+    ).rejects.toThrow("Department not found");
+  });
   it("isolates vendor quotations and orders; vendors cannot access internal comparison", async () => {
     const { q, s } = await libs();
     const w = await q.workspace(a("vendor-1", []));

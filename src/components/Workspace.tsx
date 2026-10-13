@@ -11,6 +11,7 @@ const nav = [
   ["orders", "▣", "Purchase orders", "أوامر الشراء"],
   ["vendors", "◇", "Supplier directory", "دليل الموردين"],
   ["catalog", "▦", "Product catalog", "دليل المنتجات"],
+  ["master-data", "⚙", "Master data", "البيانات الرئيسية"],
   ["inventory", "▧", "Inventory", "المخزون"],
   ["invoices", "≡", "Invoice matching", "مطابقة الفواتير"],
   ["contracts", "⌁", "Contracts & performance", "العقود والأداء"],
@@ -395,7 +396,10 @@ export default function Workspace() {
           {v ? "SUPPLIER WORKSPACE" : "WORKSPACE"}
         </div>
         <nav>
-          {(v ? vendorNav : nav).map(([key, icon, en, ar]) => (
+          {(v
+            ? vendorNav
+            : nav.filter(([key]) => key !== "master-data" || admin)
+          ).map(([key, icon, en, ar]) => (
             <button
               key={key}
               className={page === key ? "active" : ""}
@@ -490,11 +494,15 @@ export default function Workspace() {
               {page === "catalog" &&
                 buyer &&
                 button("+ Supplier mapping", () => open("mapping"), false)}
+              {page === "catalog" &&
+                role === "GROUP_ADMIN" &&
+                button("+ Add product", () => open("masterProduct"), false)}
               {page === "inventory" &&
                 receiving &&
                 button("+ Stock movement", () => open("stock"), false)}
-              {!["dashboard", "comparison", "document"].includes(page) &&
-                button("↓ Export CSV", () => csv(page, exportRows))}
+              {!["dashboard", "comparison", "document", "master-data"].includes(
+                page,
+              ) && button("↓ Export CSV", () => csv(page, exportRows))}
               {button("↻ Refresh", load)}
             </div>
           </div>
@@ -1249,6 +1257,118 @@ export default function Workspace() {
               </Panel>
             </>
           )}
+          {page === "master-data" && admin && (
+            <>
+              <div className="banner">
+                Set up products, departments, delivery warehouses and budgets
+                before users create requisitions. Products are shared across the
+                organization; the other records belong to a legal entity.
+              </div>
+              <Panel
+                title="Products and services"
+                extra={
+                  role === "GROUP_ADMIN"
+                    ? button(
+                        "+ Add product or service",
+                        () => open("masterProduct"),
+                        false,
+                      )
+                    : null
+                }
+              >
+                <Table
+                  headers={[
+                    "SKU / item",
+                    "Category",
+                    "Type",
+                    "Purchase unit conversion",
+                    "Reorder / target",
+                  ]}
+                  rows={list("products").map((p: Row) => [
+                    <>
+                      <strong>{p.sku}</strong>
+                      <small>{p.name}</small>
+                    </>,
+                    p.category,
+                    p.kind,
+                    "1 " +
+                      p.purchaseUnit +
+                      " = " +
+                      Number(p.packFactor) +
+                      " " +
+                      p.baseUnit,
+                    Number(p.reorderPoint) + " / " + Number(p.targetStock),
+                  ])}
+                />
+              </Panel>
+              <Panel
+                title="Departments and cost centers"
+                extra={button(
+                  "+ Add department",
+                  () => open("masterDepartment"),
+                  false,
+                )}
+              >
+                <Table
+                  headers={["Department", "Entity", "Cost center"]}
+                  rows={list("departments").map((d: Row) => [
+                    d.name,
+                    name(d.entityId),
+                    d.costCenter,
+                  ])}
+                />
+              </Panel>
+              <Panel
+                title="Delivery warehouses"
+                extra={button(
+                  "+ Add warehouse",
+                  () => open("masterWarehouse"),
+                  false,
+                )}
+              >
+                <Table
+                  headers={["Warehouse", "Entity", "Location"]}
+                  rows={list("warehouses").map((w: Row) => [
+                    w.name,
+                    name(w.entityId),
+                    w.location,
+                  ])}
+                />
+              </Panel>
+              <Panel
+                title="Budgets"
+                extra={button(
+                  "+ Add budget",
+                  () => open("masterBudget"),
+                  false,
+                )}
+              >
+                <Table
+                  headers={[
+                    "Budget",
+                    "Entity",
+                    "Department",
+                    "Period",
+                    "Allocated",
+                    "Available",
+                  ]}
+                  rows={list("budgets").map((b: Row) => [
+                    b.name,
+                    name(b.entityId),
+                    name(b.departmentId),
+                    b.period,
+                    amount(b.allocated, b.currency),
+                    amount(
+                      Number(b.allocated) -
+                        Number(b.committed) -
+                        Number(b.actual),
+                      b.currency,
+                    ),
+                  ])}
+                />
+              </Panel>
+            </>
+          )}
           {page === "inventory" && (
             <>
               <div className="kpi-grid">
@@ -1706,6 +1826,18 @@ function ActionDialog({
     moq: "1",
     country: "EG",
     vendorSku: "",
+    sku: "",
+    category: "",
+    kind: "GOODS",
+    baseUnit: "piece",
+    purchaseUnit: "piece",
+    specifications: "",
+    reorderPoint: "0",
+    targetStock: "1",
+    costCenter: "",
+    location: "",
+    period: String(new Date().getFullYear()),
+    allocated: "",
   };
   const [form, setForm] = useState<Row>(defaults);
   const [lines, setLines] = useState<Row[]>(() => {
@@ -1976,6 +2108,48 @@ function ActionDialog({
           taxId: form.taxId,
         };
       }
+      if (k === "masterDepartment") {
+        path = "master-data/departments";
+        body = {
+          entityId: form.entityId,
+          name: form.name,
+          costCenter: form.costCenter,
+        };
+      }
+      if (k === "masterWarehouse") {
+        path = "master-data/warehouses";
+        body = {
+          entityId: form.entityId,
+          name: form.name,
+          location: form.location,
+        };
+      }
+      if (k === "masterBudget") {
+        path = "master-data/budgets";
+        body = {
+          entityId: form.entityId,
+          departmentId: form.departmentId,
+          name: form.name,
+          period: form.period,
+          currency: form.currency,
+          allocated: form.allocated,
+        };
+      }
+      if (k === "masterProduct") {
+        path = "master-data/products";
+        body = {
+          sku: form.sku,
+          name: form.name,
+          category: form.category,
+          kind: form.kind,
+          baseUnit: form.baseUnit,
+          purchaseUnit: form.purchaseUnit,
+          packFactor: form.packFactor,
+          specifications: form.specifications,
+          reorderPoint: form.reorderPoint,
+          targetStock: form.targetStock,
+        };
+      }
       if (k === "qualify") {
         path = "vendors/" + t.id + "/qualify";
         body = { status: form.status, reason: form.reason };
@@ -2037,6 +2211,10 @@ function ActionDialog({
     mapping: "Verify supplier mapping",
     amend: "Amend RFQ",
     details: "Record details",
+    masterDepartment: "Add department",
+    masterWarehouse: "Add delivery warehouse",
+    masterBudget: "Add budget",
+    masterProduct: "Add product or service",
   };
   return (
     <div
@@ -2078,8 +2256,75 @@ function ActionDialog({
           </div>
         ) : (
           <form onSubmit={submit}>
-            {["requisition", "vendorInvite", "stock"].includes(k) &&
+            {[
+              "requisition",
+              "vendorInvite",
+              "stock",
+              "masterDepartment",
+              "masterWarehouse",
+              "masterBudget",
+            ].includes(k) &&
               field("entityId", "Legal entity", "text", option(data.entities))}
+            {["masterDepartment", "masterBudget"].includes(k) && (
+              <div className="form-grid">
+                {field(
+                  "name",
+                  k === "masterDepartment" ? "Department name" : "Budget name",
+                )}
+                {k === "masterDepartment"
+                  ? field("costCenter", "Cost center")
+                  : field(
+                      "departmentId",
+                      "Department",
+                      "text",
+                      option(
+                        data.departments.filter(
+                          (x: Row) => x.entityId === form.entityId,
+                        ),
+                      ),
+                    )}
+                {k === "masterBudget" && (
+                  <>
+                    {field("period", "Budget period")}
+                    {field("currency", "Currency")}
+                    {field("allocated", "Allocated amount", "number")}
+                  </>
+                )}
+              </div>
+            )}
+            {k === "masterWarehouse" && (
+              <div className="form-grid">
+                {field("name", "Warehouse name")}
+                {field("location", "Location")}
+              </div>
+            )}
+            {k === "masterProduct" && (
+              <>
+                <div className="form-grid">
+                  {field("sku", "SKU")}
+                  {field("name", "Product or service name")}
+                  {field("category", "Category")}
+                  {field("kind", "Type", "text", [
+                    { value: "GOODS", label: "Goods (stock tracked)" },
+                    { value: "SERVICE", label: "Service (not stock tracked)" },
+                  ])}
+                  {field("baseUnit", "Base unit")}
+                  {field("purchaseUnit", "Purchase unit")}
+                  {field(
+                    "packFactor",
+                    "Base units per purchase unit",
+                    "number",
+                  )}
+                  {field(
+                    "reorderPoint",
+                    "Reorder point (base units)",
+                    "number",
+                  )}
+                  {field("targetStock", "Target stock (base units)", "number")}
+                </div>
+                {field("specifications", "Specifications", "textarea")}
+              </>
+            )}
             {k === "requisition" && (
               <>
                 <div className="form-grid">

@@ -26,10 +26,10 @@ When an RFQ is amended, the supplier must acknowledge the new version before sub
 
 ## Master-data administration
 
-The core UI supports suppliers and verified supplier mappings; product/entity/budget/user administration is not a complete self-service UI. Use the trusted operator scripts or reviewed SQL migrations.
+Group and entity administrators can use **Master data** to add products and services, entity departments and cost centers, delivery warehouses, and entity budgets. Products are tenant-wide; the other records are restricted to the selected legal entity. Budget currency must match the entity currency, and a budget must belong to a department in that entity. New records are audit logged.
 
 - `scripts/bootstrap.ts`: initializes an empty production database and one group administrator.
-- `scripts/provision.ts`: adds departments, warehouses, entity users and products from a validated local JSON file. Set `PROVISION_FILE` to its absolute path and `PROVISION_PASSWORD` only when creating users. Supply `tenantId`, `entityId`, and a valid group administrator `operatorId`. All changes are audited.
+- `scripts/provision.ts`: bulk-adds departments, warehouses, entity users and products from a validated local JSON file. Set `PROVISION_FILE` to its absolute path and `PROVISION_PASSWORD` only when creating users. Supply `tenantId`, `entityId`, and a valid group administrator `operatorId`. All changes are audited.
 - `scripts/password.ts`: rotates a user's password and revokes their sessions. Set `RESET_EMAIL` and `RESET_PASSWORD` in a secure local environment.
 
 Example provisioning configuration (IDs come from your database/authorized workspace, never guess them):
@@ -69,7 +69,7 @@ Example provisioning configuration (IDs come from your database/authorized works
 }
 ```
 
-Prefer provisioning one user per run with a unique password. If a shared temporary provisioning password is used, rotate every account separately before granting live access. There is no forced password-change screen in this release. Keep provisioning config/passwords outside the repository. Entity budgets and additional legal entities are currently provisioned by reviewed database administration, not this CLI.
+Prefer provisioning one user per run with a unique password. If a shared temporary provisioning password is used, rotate every account separately before granting live access. There is no forced password-change screen in this release. Keep provisioning config/passwords outside the repository. Additional legal entities and users are currently provisioned through trusted operator scripts or reviewed database administration.
 
 ## UI and exports
 
